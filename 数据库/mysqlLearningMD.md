@@ -309,6 +309,75 @@ SOUNDEX 是一个将任何文 本串转换为描述其语音表示的字母数�
 | **构建日期**              | `DATE_FROM_PARTS(year, month, day)` | `MAKEDATE(year, day_of_year)` | `MAKE_DATE(year, month, day)` | `DATEFROMPARTS(year, month, day)` | `TO_DATE(year\|\|month\|\|day, 'YYYYMMDD')` | `DATE(YYYY-MM-DD)` |
 | **周相关计算**            | `EXTRACT(WEEK FROM date)` | `WEEK(date)`         | `EXTRACT(WEEK FROM date)` | `DATEPART(WEEK, date)` | `TO_CHAR(date, 'WW')` | `STRFTIME('%W', date)` |
 
+### 聚集函数
+
+#### `AVG()`
+
+```sql
+SELECT AVG(prod_price) AS avg_price FROM Products
+WHERE vend_id = 'DLL01';
+```
+
+`AVG()`只能用来确定特定数值列的平均值，而且列名必须作为函数参 数给出。为了获得多个列的平均值，必须使用多个 AVG()函数。
+`AVG()`函数忽略列值为 `NULL` 的行。
+
+#### `COUNT()`
+
+- 使用 `COUNT(*)`对表中行的数目进行计数，不管表列中包含的是空值还是非空值。
+- 使用 `COUNT(column)`对特定列中具有值的行进行计数，忽略 `NULL` 值。
+
+#### `MAX()`和`MIN()`
+
+`MAX()`要求指定列名
+虽然 `MAX()`一般用来找出最大的数值或日期值，但许多（并非所有） DBMS 允许将它用来返回任意列中的最大值，包括返回文本列中的最大值。在用于文本数据时，`MAX()`返回按该列排序后的最后一行。`MAX()`函数忽略列值为 NULL 的行。
+`MIN()`函数也一样。在用于文本数据时，`MIN()`返回按该列排序后的第一行。
+
+#### `SUM()`
+
+`SUM()`函数忽略列值为 `NULL` 的行。
+
+#### 组合
+
+```sql
+SELECT COUNT(*) AS num_items,
+MIN(prod_price) AS price_min, MAX(prod_price) AS price_max, AVG(prod_price) AS price_avg FROM Products;
+```
+
+SQL 支持 5 个聚集函数，可以用多种方法使用 它们，返回所需的结果。这些函数很高效，它们返回结果一般比你在自 己的客户端应用程序中计算要快得多。
+
+## 分组数据
+
+### 创建分组
+
+```sql
+SELECT vend_id, 
+    COUNT(*) AS num_prods 
+FROM Products
+GROUP BY vend_id;
+```
+
+- `GROUP BY` 子句可以包含任意数目的列，因而可以对分组进行嵌套，更细致地进行数据分组。
+- 如果在 `GROUP BY` 子句中嵌套了分组，数据将在最后指定的分组上进 行汇总。换句话说，在建立分组时，指定的所有列都一起计算（所以不能从个别的列取回数据）。
+- `GROUP BY` 子句中列出的每一列都必须是检索列或有效的表达式（但 不能是聚集函数）。如果在 `SELECT` 中使用表达式，则必须在 `GROUP BY` 子句中指定相同的表达式。不能使用别名。
+- 大多数 SQL 实现不允许 `GROUP BY` 列带有长度可变的数据类型（如文本或备注型字段）。
+- 除聚集计算语句外，`SELECT` 语句中的每一列都必须在 `GROUP BY` 子句中给出。
+- 如果分组列中包含具有 `NULL` 值的行，则 `NULL` 将作为一个分组返回。如果列中有多行 NULL 值，它们将分为一组。
+- `GROUP BY` 子句必须出现在 `WHERE` 子句之后，`ORDER BY` 子句之前
+
+### 过滤分组
+
+```sql
+SELECT cust_id, 
+    COUNT(*) AS orders 
+FROM Orders
+GROUP BY cust_id 
+HAVING COUNT(*) >= 2;
+```
+
+`HAVING` 非常类似于 `WHERE`。事实上，目前为止所学过的 所有类型的 `WHERE` 子句都可以用 `HAVING` 来替代。唯一的差别是，`WHERE` 过滤行，而 `HAVING` 过滤分组。
+`WHERE` 在数据分组前进行过滤，`HAVING` 在数据分组后进行过滤。这是一个重要的区别，`WHERE` 排除的行不包括在 分组中。这可能会改变计算值，从而影响 `HAVING` 子句中基于这些值过滤掉的分组。
+一般在使用 `GROUP BY` 子句时，应该也给出 `ORDER BY` 子句。这是保证数据正确排序的唯一方法。千万不要仅依赖 `GROUP BY` 排序数据。
+
 ## 一些需要注意的地方
 
 ### 精度
