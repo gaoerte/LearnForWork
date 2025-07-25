@@ -378,6 +378,179 @@ HAVING COUNT(*) >= 2;
 `WHERE` 在数据分组前进行过滤，`HAVING` 在数据分组后进行过滤。这是一个重要的区别，`WHERE` 排除的行不包括在 分组中。这可能会改变计算值，从而影响 `HAVING` 子句中基于这些值过滤掉的分组。
 一般在使用 `GROUP BY` 子句时，应该也给出 `ORDER BY` 子句。这是保证数据正确排序的唯一方法。千万不要仅依赖 `GROUP BY` 排序数据。
 
+## 子查询
+
+```sql
+SELECT cust_name, cust_contact 
+FROM Customers
+WHERE cust_id IN (SELECT cust_id
+                  FROM Orders
+                  WHERE order_num IN (SELECT order_num
+                                      FROM OrderItems
+                                      WHERE prod_id = 'RGAN01'));
+```
+
+作为子查询的 `SELECT` 语句只能查询单个列。企图检索多个列将返回 错误。
+这里给出的代码有效，并且获得了所需的结果。但是，使用子查询并 不总是执行这类数据检索的最有效方法。
+
+```sql
+SELECT cust_name,
+        cust_state,
+        (SELECT COUNT(*)
+        FROM Orders
+        WHERE Orders.cust_id = Customers.cust_id) AS orders 
+FROM Customers
+ORDER BY cust_name;
+```
+
+有时候，由于出现冲突列名而 导致的歧义性，会引起 DBMS 抛出错误信息。例如，`WHERE` 或 `ORDER BY` 子句指定的某个列名可能会出现在多个表中。好的做法是，如果在 `SELECT` 语句中操作多个表，就应使用完全限定列名来避免歧义
+
+## 联结表
+
+将数据分解为多个表能更有效地存储，更方便地处理，并且可伸缩性更好。但这些好处是有代价的。
+如果数据存储在多个表中，怎样用一条 `SELECT` 语句就检索出数据呢？
+答案是使用联结。简单说，联结是一种机制，用来在一条 `SELECT` 语句 中关联表，因此称为联结。使用特殊的语法，可以联结多个表返回一组 输出，联结在运行时关联表中正确的行。
+
+### 使用WHERE子句
+
+在一条 SELECT 语句中联结几个表时，相应的关系是在运行中构造的。在数据库表的定义中没有指示 DBMS 如何对表进行联结的内容。你必须自己做这件事情。在联结两个表时，实际要做的是将第一个表中的每一行与第二个表中的每一行配对。`WHERE` 子句作为过滤 条件，只包含那些匹配给定条件（这里是联结条件）的行。没有 `WHERE` 子句，第一个表中的每一行将与第二个表中的每一行配对，而不管它们 逻辑上是否能配在一起。
+由没有联结条件的表关系返回的结果为笛卡儿积。检索出的行的数目 将是第一个表中的行数乘以第二个表中的行数。
+
+### 内联结
+
+目前为止使用的联结称为等值联结（equijoin），它基于两个表之间的相 等测试。这种联结也称为内联结（inner join）。
+
+```sql
+SELECT vend_name, prod_name, prod_price 
+FROM Vendors
+INNER JOIN Products 
+ON Vendors.vend_id = Products.vend_id;
+```
+
+联结多个表
+
+```sql
+SELECT prod_name, vend_name, prod_price, quantity 
+FROM OrderItems, Products, Vendors
+WHERE Products.vend_id = Vendors.vend_id AND OrderItems.prod_id = Products.prod_id AND order_num = 20007;
+```
+
+## 创建高级联结
+
+### 使用表别名
+
+```sql
+SELECT cust_name, 
+      cust_contact 
+FROM Customers AS C, 
+      Orders AS O, 
+      OrderItems AS OI 
+WHERE C.cust_id = O.cust_id
+      AND OI.order_num = O.order_num 
+      AND prod_id = 'RGAN01';
+```
+
+需要注意，表别名只在查询执行中使用。与列别名不一样，表别名不返回到客户端。
+
+### 自联结
+
+假如要给与 Jim Jones 同一公司的所有顾客发送一封信件。这个查询要求 首先找出 Jim Jones 工作的公司，然后找出在该公司工作的顾客。下面是 解决此问题的一种方法：
+
+```sql
+SELECT cust_id, 
+        cust_name, 
+        cust_contact 
+FROM Customers
+WHERE cust_name = (SELECT cust_name
+                    FROM Customers
+                    WHERE cust_contact = 'Jim Jones');
+```
+
+```sql
+SELECT c1.cust_id, 
+        c1.cust_name, 
+        c1.cust_contact 
+FROM Customers AS c1, 
+      Customers AS c2
+WHERE c1.cust_name = c2.cust_name 
+      AND c2.cust_contact = 'Jim Jones';
+```
+
+此查询中需要的两个表实际上是相同的表，因此 `Customers` 表在 FROM 子句中出现了两次。虽然这是完全合法的，但对 `Customers` 的引用具有 歧义性，因为 DBMS 不知道你引用的是哪个 `Customers` 表。
+解决此问题，需要使用表别名。
+
+自联结通常作为外部语句，用来替代从相同表中检索数据的使用子查询语句。虽然最终的结果是相同的，但许多 DBMS 处理联结远比处理子查询快得多。
+
+### 自然联结
+
+无论何时对表进行联结，应该至少有一列不止出现在一个表中（被联结的列）。标准的联结（前一课中介绍的内联结）返回所有数据，相同的列 甚至多次出现。自然联结排除多次出现，使每一列只返回一次。
+
+```sql
+SELECT C.*,
+      O.order_num,
+      O.order_date,
+      OI.prod_id,
+      OI.quantity, 
+      OI.item_price 
+FROM Customers AS C, 
+     Orders AS O,
+     OrderItems AS OI 
+WHERE C.cust_id = O.cust_id 
+      AND OI.order_num = O.order_num 
+      AND prod_id = 'RGAN01';
+```
+
+### 外联结
+
+许多联结将一个表中的行与另一个表中的行相关联，但有时候需要包含 没有关联行的那些行。
+需要注意，用来创建外联结的语法在不同的 SQL 实现中可能稍有不同。
+
+```sql
+SELECT Customers.cust_id, Orders.order_num 
+FROM Customers
+LEFT OUTER JOIN Orders ON Customers.cust_id = Orders.cust_id;
+```
+
+在使用 `OUTER JOIN` 语法时，必须使用 `RIGHT` 或 `LEFT` 关键字指定包括其所有行的表 （`RIGHT` 指出的是 `OUTER JOIN` 右边的表，而 `LEFT` 指出的是 `OUTER JOIN` 左边的表）。上面的例子使用 `LEFT OUTER JOIN` 从 `FROM` 子句左边的表 （`Customers` 表）中选择所有行。
+
+还存在另一种外联结，就是全外联结（full outer join），它检索两个表中 的所有行并关联那些可以关联的行。
+
+```sql
+SELECT Customers.cust_id, Orders.order_num 
+FROM Customers
+FULL OUTER JOIN Orders ON Customers.cust_id = Orders.cust_id;
+```
+
+MariaDB、MySQL 和 SQLite 不支持 `FULL OUTER JOIN` 语法
+替代方案：使用 `UNION ALL` 组合 `LEFT JOIN` 和 `RIGHT JOIN`
+
+### 带聚集函数的联结
+
+### 总结
+
+- 注意所使用的联结类型。一般我们使用内联结，但使用外联结也有效。 
+- 关于确切的联结语法，应该查看具体的文档，看相应的 DBMS 支持何种语法（大多数 DBMS 使用这两课中描述的某种语法）。
+- 保证使用正确的联结条件（不管采用哪种语法），否则会返回不正确的数据。
+- 应该总是提供联结条件，否则会得出笛卡儿积。 
+- 在一个联结中可以包含多个表，甚至可以对每个联结采用不同的联结 类型。虽然这样做是合法的，一般也很有用，但应该在一起测试它们前分别测试每个联结。这会使故障排除更为简单。
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 ## 一些需要注意的地方
 
 ### 精度
