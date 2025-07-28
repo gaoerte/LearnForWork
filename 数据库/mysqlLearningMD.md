@@ -528,16 +528,274 @@ MariaDB、MySQL 和 SQLite 不支持 `FULL OUTER JOIN` 语法
 
 ### 总结
 
-- 注意所使用的联结类型。一般我们使用内联结，但使用外联结也有效。 
+- 注意所使用的联结类型。一般我们使用内联结，但使用外联结也有效。
 - 关于确切的联结语法，应该查看具体的文档，看相应的 DBMS 支持何种语法（大多数 DBMS 使用这两课中描述的某种语法）。
 - 保证使用正确的联结条件（不管采用哪种语法），否则会返回不正确的数据。
-- 应该总是提供联结条件，否则会得出笛卡儿积。 
+- 应该总是提供联结条件，否则会得出笛卡儿积。
 - 在一个联结中可以包含多个表，甚至可以对每个联结采用不同的联结 类型。虽然这样做是合法的，一般也很有用，但应该在一起测试它们前分别测试每个联结。这会使故障排除更为简单。
 
+## 组合查询
 
+### 起因
 
+多数 SQL 查询只包含从一个或多个表中返回数据的单条 `SELECT` 语句。 但是，SQL 也允许执行多个查询（多条 `SELECT` 语句），并将结果作为一 个查询结果集返回。这些组合查询通常称为并（`union`）或复合查询 （compound query）。
+主要有两种情况需要使用组合查询：
 
+- 在一个查询中从不同的表返回结构数据；
+- 对一个表执行多个查询，按一个查询返回数据。
 
+### 规则
+
+- `UNION` 必须由两条或两条以上的 `SELECT` 语句组成，语句之间用关键字 `UNION` 分隔（因此，如果组合四条 `SELECT` 语句，将要使用三个 `UNION` 关键字）。
+- `UNION` 中的每个查询必须包含相同的列、表达式或聚集函数（不过，
+各个列不需要以相同的次序列出）。
+- 列数据类型必须兼容：类型不必完全相同，但必须是 DBMS 可以隐含
+转换的类型（例如，不同的数值类型或不同的日期类型）。
+
+### 包含重复的行
+
+`UNION`自动取消重复的行，可以使用`UNION ALL`来包含
+
+`UNION` 几乎总是完成与多个 WHERE 条件相同 的工作。`UNION ALL` 为 `UNION` 的一种形式，它完成 `WHERE` 子句完成 不了的工作。如果确实需要每个条件的匹配行全部出现（包括重复行）， 就必须使用 `UNION ALL`，而不是 `WHERE`。
+
+### 排序注意事项
+
+`SELECT` 语句的输出用 `ORDER BY` 子句排序。在用 `UNION` 组合查询时，只 能使用一条 `ORDER BY` 子句，它必须位于最后一条 `SELECT` 语句之后。
+
+## `INSERT`
+
+```sql
+INSERT INTO Customers(cust_id,
+                        cust_name,
+                        cust_address,
+                        cust_city,
+                        cust_state,
+                        cust_zip,
+                        cust_country,
+                        cust_contact,
+                        cust_email)
+VALUES(1000000006,
+      'Toy Land',
+      '123 Any Street',
+      'New York',
+      'NY',
+      '11111',
+      'USA',
+      NULL,
+      NULL);
+```
+
+### 省略列
+
+如果表的定义允许，则可以在 `INSERT` 操作中省略某些列。省略的列 必须满足以下某个条件。
+
+- 该列定义为允许 `NULL` 值（无值或空值）。
+- 在表定义中给出默认值。这表示如果不给出值，将使用默认值。
+
+### 插入检索出的数据
+
+```sql
+INSERT INTO Customers(cust_id,
+                        cust_contact,
+                        cust_email, 
+                        cust_name,
+                        cust_address,
+                        cust_city,
+                        cust_state,
+                        cust_zip,
+                        cust_country)
+SELECT cust_id,
+      cust_contact,
+      cust_email,
+      cust_name,
+      cust_address,
+      cust_city,
+      cust_state,
+      cust_zip,
+      cust_country 
+FROM CustNew;
+```
+
+事实上，DBMS 一点儿也不关心 `SELECT` 返回的列名。它使用的是列的位置，因此 `SELECT` 中的第一列（不管其列名）将用来填充表列中指定的第一列，第二列将用来填充表列中指定的第二列
+
+`INSERT` 通常只插入一行。要插入多行，必须执行多个 `INSERT` 语句。 `INSERT SELECT` 是个例外，它可以用一条 `INSERT` 插入多行，不管 `SELECT` 语句返回多少行，都将被 `INSERT` 插入。
+
+### 复制新表
+
+要将一个表的内容复制到一个全 新的表（运行中创建的表），可以使用 `CREATE SELECT` 语句
+
+SELECT INTO 是试验新 SQL 语句前进行表复制的很好工具。先进行复 制，可在复制的数据上测试 SQL 代码，而不会影响实际的数据。
+
+## 更新和删除数据
+
+### `UPDATE`
+
+更新（修改）表中的数据，可以使用 `UPDATE` 语句。有两种使用 `UPDATE` 的方式：
+
+- 更新表中的特定行；
+- 更新表中的所有行。
+
+基本的 `UPDATE` 语句 由三部分组成，分别是:
+
+- 要更新的表；
+- 列名和它们的新值；
+- 确定要更新哪些行的过滤条件。
+
+```sql
+UPDATE Customers 
+SET cust_contact = 'Sam Roberts',
+      cust_email = 'kim@thetoystore.com' 
+WHERE cust_id = 1000000005;
+```
+
+UPDATE 语句中可以使用子查询，使得能用 `SELECT` 语句检索出的数据 更新列数据。
+有的 SQL 实现支持在 `UPDATE` 语句中使用 `FROM` 子句，用一个表的数 据更新另一个表的行。
+
+### `DELETE`
+
+有两种使用 `DELETE` 的方式：
+
+- 从表中删除特定的行
+- 从表中删除所有行。
+
+在某些 SQL 实现中，跟在 `DELETE` 后的关键字 `FROM` 是可选的。但是 即使不需要，也最好提供这个关键字。
+
+简单联结两个表只需要这两个表中的公用字段。 也可以让 DBMS 通过使用外键来严格实施关系。存在外键时，DBMS 使用它们实施引用完整性。例如要向 `Products` 表中插入一个新产品，DBMS 不允许通过未知的供应商 id插入它，因为 `vend_id` 列是作为外键连接到 `Vendors` 表的。那么， 这与 `DELETE` 有什么关系呢？使用外键确保引用完整性的一个好处是， DBMS 通常可以防止删除某个关系需要用到的行。例如，要从 `Products` 表中删除一个产品，而这个产品用在 `OrderItems` 的已有订 单中，那么 `DELETE` 语句将抛出错误并中止。这是总要定义外键的另一个理由。
+
+`DELETE` 不需要列名或通配符。`DELETE` 删除整行而不是删除列。要删除 指定的列，请使用 `UPDATE` 语句。
+
+如果想从表中删除所有行，不要使用 `DELETE`。可使用 `TRUNCATE TABLE` 语句，它完成相同的工作，而速度更快（因为不记录数据的变动）
+
+- 除非确实打算更新和删除每一行，否则绝对不要使用不带 `WHERE` 子句
+的 `UPDATE` 或 `DELETE` 语句。
+- 保证每个表都有主键，尽可能 像 `WHERE` 子句那样使用它（可以指定各主键、多个值或值的范围）。
+- 在 UPDATE 或 `DELETE` 语句使用 `WHERE` 子句前，应该先用 `SELECT` 进 行测试，保证它过滤的是正确的记录，以防编写的 `WHERE` 子句不正确。
+- 使用强制实施引用完整性的数据库，这样 DBMS 将不允许删除其数据与其他表相关联的行。
+- 有的 DBMS 允许数据库管理员施加约束，防止执行不带 `WHERE` 子句 的 `UPDATE` 或 `DELETE` 语句。
+- 若是 SQL 没有撤销按钮，应该非常小心地使用 `UPDATE` 和 `DELETE`, 否则你会发现自己更新或删除了错误的数据。
+
+## 创建和操纵表
+
+### `CREATE`
+
+利用 `CREATE TABLE` 创建表，必须给出下列信息：
+
+- 新表的名字，在关键字 `CREATE TABLE` 之后给出；
+- 表列的名字和定义，用逗号分隔；
+- 有的 DBMS 还要求指定表的位置。
+
+在创建新的表时，指定的表名必须不存在，否则会出错。防止意外覆 盖已有的表，SQL 要求首先手工删除该表，然后再重建它，而不是简单地用创建表语句覆盖它。
+
+### 关于`NULL`
+
+在不指定 `NOT NULL` 时，多数 DBMS 认为指定的是 `NULL`，但不是所有的 DBMS 都这样。
+主键是其值唯一标识表中每一行的列。只有不允许 NULL 值的列可作为主键，允许 NULL 值的列不能作为唯一标识。
+不要把 `NULL` 值与空字符串相混淆。`NULL` 值是没有值，不是空字符串。 如果指定''（两个单引号，其间没有字符），这在 NOT NULL 列中是允 许的。空字符串是一个有效的值，它不是无值。`NULL` 值用关键字 `NULL` 而不是空字符串指定。
+
+### 指定默认值
+
+```sql
+CREATE TABLE OrderItems
+(
+      order_num         INTEGER           NOT NULL, 
+      order_item        INTEGER           NOT NULL, 
+      prod_id           CHAR(10)          NOT NULL,
+      quantity          INTEGER           NOT NULL    DEFAULT 1,
+      item_price        DECIMAL(8,2)      NOT NULL
+);
+```
+
+### 更新表
+
+更新表定义，可以使用 `ALTER TABLE` 语句。
+
+- 理想情况下，不要在表中包含数据时对其进行更新。应该在表的设计 过程中充分考虑未来可能的需求，避免今后对表的结构做大改动。
+- 所有的 DBMS 都允许给现有的表增加列，不过对所增加列的数据类型
+（以及 NULL 和 DEFAULT 的使用）有所限制。
+- 许多 DBMS 不允许删除或更改表中的列。
+- 多数 DBMS 允许重新命名表中的列。
+- 许多 DBMS 限制对已经填有数据的列进行更改，对未填有数据的列几乎没有限制。
+
+使用 `ALTER TABLE` 更改表结构，必须给出下面的信息：
+
+- 在 `ALTER TABLE` 之后给出要更改的表名（该表必须存在，否则将出错）；
+- 列出要做哪些更改。
+
+```sql
+ALTER TABLE Vendors 
+ADD vend_phone CHAR(20);
+```
+
+```sql
+ALTER TABLE Vendors 
+DROP COLUMN vend_phone;
+```
+
+复杂的表结构更改一般需要手动删除过程，它涉及以下步骤：
+(1) 用新的列布局创建一个新表；
+(2) 使用 `INSERT SELECT` 语句从旧表复制数据到新表。有必要的话，可以使用转换函数和计算字段；
+(3) 检验包含所需数据的新表；
+(4) 重命名旧表（如果确定，可以删除它）；
+(5) 用旧表原来的名字重命名新表；
+(6) 根据需要，重新创建触发器、存储过程、索引和外键。
+
+### 删除表
+
+```sql
+DROP TABLE CustCopy;
+```
+
+这条语句删除 `CustCopy` 表。删除表没有确认步骤， 也不能撤销，执行这条语句将永久删除该表。
+
+### 重命名表
+
+每个 DBMS 对表重命名的支持有所不同。对于这个操作，不存在严格的 标准。DB2、MariaDB、MySQL、Oracle 和 PostgreSQL 用户使用 `RENAME` 语句，SQL Server 用户使用 `sp_rename` 存储过程，SQLite 用户使用 `ALTER TABLE` 语句。
+
+## 使用视图
+
+视图是虚拟的表。与包含数据的表不一样，视图只包含使用时动态检索 数据的查询。
+视图仅仅是用来查看存储在别处数据的一种设施。视 图本身不包含数据，因此返回的数据是从其他表中检索出来的。在添加 或更改这些表中的数据时，视图将返回改变过的数据。
+
+下面是关于视图创建和使用的一些最常见的规则和限制。
+
+- 与表一样，视图必须唯一命名（不能给视图取与别的视图或表相同的
+名字）。
+- 对于可以创建的视图数目没有限制。
+- 创建视图，必须具有足够的访问权限。这些权限通常由数据库管理人
+员授予。
+- 视图可以嵌套，即可以利用从其他视图中检索数据的查询来构造视图。 所允许的嵌套层数在不同的 DBMS 中有所不同（嵌套视图可能会严重降 低查询的性能，因此在产品环境中使用之前，应该对其进行全面测试）。
+- 许多 DBMS 禁止在视图查询中使用 ORDER BY 子句。
+- 有些 DBMS 要求对返回的所有列进行命名，如果列是计算字段，则需要使用别名
+- 视图不能索引，也不能有关联的触发器或默认值。
+- 有些 DBMS 把视图作为只读的查询，这表示可以从视图检索数据，但
+不能将数据写回底层表。详情请参阅具体的 DBMS 文档。
+- 有些 DBMS 允许创建这样的视图，它不能进行导致行不再属于视图的插入或更新。例如有一个视图，只检索带有电子邮件地址的顾客。 如果更新某个顾客，删除他的电子邮件地址，将使该顾客不再属于视图。这是默认行为，而且是允许的，但有的 DBMS 可能会防止这种情况发生。
+
+### `CREATE VIEW`
+
+与 `CREATE TABLE` 一样，`CREATE VIEW` 只能用于创建不存在的视图。
+删除视图，可以使用 `DROP` 语句，其语法为 `DROP VIEW viewname;`。
+覆盖（或更新）视图，必须先删除它，然后再重新创建。
+
+```sql
+CREATE VIEW ProductCustomers AS 
+SELECT cust_name, cust_contact, prod_id 
+FROM Customers, Orders, OrderItems
+WHERE Customers.cust_id = Orders.cust_id 
+      AND OrderItems.order_num = Orders.order_num
+
+SELECT cust_name, cust_contact 
+FROM ProductCustomers
+WHERE prod_id = 'RGAN01';
+```
+
+从视图检索数据时如果使用了一条 `WHERE` 子句，则两组子句（一组在视图中，另一组是传递给视图的）将自动组合。
+
+### 小结
+
+视图为虚拟的表。它们包含的不是数据而是根据需要检索数据的查询。 视图提供了一种封装 `SELECT` 语句的层次，可用来简化数据处理，重新格式化或保护基础数据。
+
+## 使用存储课程
 
 
 
@@ -553,6 +811,15 @@ MariaDB、MySQL 和 SQLite 不支持 `FULL OUTER JOIN` 语法
 
 ## 一些需要注意的地方
 
+### `NULL`
+
+在 SQL 中，IS NOT NULL 和 <> NULL（或 != NULL）有本质区别，​它们完全不兼容且不可互换。核心区别在于 NULL 的特殊性：
+
+根本区别：NULL 的三值逻辑特性
+​NULL 表示"未知"或"不存在"的值，不是具体的数值
+任何与 NULL 的比较操作（=, <>, <, >等）都返回 UNKNOWN​
+WHERE 子句只返回条件为 TRUE 的结果，过滤掉 FALSE 和 UNKNOWN
+
 ### 精度
 
 黄金法则：​涉及金钱计算必用 DECIMAL，地理坐标可用 DOUBLE，其他场景优先测试误差容忍度。
@@ -560,3 +827,5 @@ MariaDB、MySQL 和 SQLite 不支持 `FULL OUTER JOIN` 语法
 ### 字符串
 
 使用''
+
+### 外键
