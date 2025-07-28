@@ -795,19 +795,339 @@ WHERE prod_id = 'RGAN01';
 
 视图为虚拟的表。它们包含的不是数据而是根据需要检索数据的查询。 视图提供了一种封装 `SELECT` 语句的层次，可用来简化数据处理，重新格式化或保护基础数据。
 
-## 使用存储课程
+## 使用存储过程
 
+存储过程就是为以后使用而保存的一条 或多条 SQL 语句。可将其视为批文件，虽然它们的作用不仅限于批处理。
+SQLite 不支持存储过程。
 
+我们知道了什么是存储过程，那么为什么要使用它们呢？
 
+- 通过把处理封装在一个易用的单元中，可以简化复杂的操作。
+- 由于不要求反复建立一系列处理步骤，因而保证了数据的一致性。如果所有开发人员和应用程序都使用同一存储过程，则所使用的代码都是相同的。
+- 上一点的延伸就是防止错误。需要执行的步骤越多，出错的可能性就越大。防止错误保证了数据的一致性。
+- 简化对变动的管理。如果表名、列名或业务逻辑（或别的内容）有变化，那么只需要更改存储过程的代码。使用它的人员甚至不需要知道这些变化。
+- 上一点的延伸就是安全性。通过存储过程限制对基础数据的访问，减少了数据讹误（无意识的或别的原因所导致的数据讹误）的机会。
+- 因为存储过程通常以编译过的形式存储，所以 DBMS 处理命令所需的
+工作量少，提高了性能。
+- 存在一些只能用在单个请求中的 SQL 元素和特性，存储过程可以使用
+它们来编写功能更强更灵活的代码。
 
+缺陷:
 
+- 不同 DBMS 中的存储过程语法有所不同。事实上，编写真正的可移植存储过程几乎是不可能的。不过，存储过程的自我调用（名字以及数据如何传递）可以相对保持可移植。因此，如果需要移植到别的 DBMS， 至少客户端应用代码不需要变动。
+- 一般来说，编写存储过程比编写基本 SQL 语句复杂，需要更高的技能，更丰富的经验。因此，许多数据库管理员把限制存储过程的创建作为安全措施。
 
+### 执行存储过程
 
+以下是存储过程所完成的工作：
 
+- 验证传递的数据，保证所有 4 个参数都有值；
+- 生成用作主键的唯一 ID；
+- 参数可选，具有不提供参数时的默认值。
+- 不按次序给出参数，以“参数=值”的方式给出参数值。
+- 输出参数，允许存储过程在正执行的应用程序中更新所用的参数。
+- 用 `SELECT` 语句检索数据。
+- 返回代码，允许存储过程返回一个值到正在执行的应用程序。
 
+```sql
+CREATE PROCEDURE NewOrder @cust_id CHAR(10) 
+AS
+-- 为订单号声明一个变量 
+DECLARE @order_num INTEGER 
+-- 获取当前最大订单号
+SELECT @order_num=MAX(order_num) 
+FROM Orders
+-- 决定下一个订单号 
+SELECT @order_num=@order_num+1 
+-- 插入新订单
+INSERT INTO Orders(order_num, order_date, cust_id) 
+VALUES(@order_num, GETDATE(), @cust_id)
+-- 返回订单号 
+RETURN @order_num;
+```
 
+此存储过程在 `Orders` 表中创建一个新订单。它只有一个参数，即下订单顾客的 `ID`。订单号和订单日期这两列在存储过程中自动生成。代码首先声明一个局部变量来存储订单号。接着，检索当前最大订单号（使用 `MAX()`函数）并增加 1（使用 `SELECT` 语句）。然后用 `INSERT` 语句插入由 新生成的订单号、当前系统日期（用 `GETDATE()`函数检索）和传递的顾 客 `ID` 组成的订单。最后，用 R`ETURN @order_num` 返回订单号（处理订单物品需要它）。
 
+## 管理事务处理
 
+事务处理是一种机制， 用来管理必须成批执行的 SQL 操作，保证数据库不包含不完整的操作结果。利用事务处理，可以保证一组操作不会中途停止，它们要么完全执行，要么完全不执行（除非明确指示）。如果没有错误发生，整组语句提交给（写到）数据库表；如果发生错误，则进行回退（撤销），将数据库恢复到某个已知且安全的状态。
+
+管理事务的关键在于将 SQL 语句组分解为逻辑块，并明确规定数据何时 应该回退，何时不应该回退。
+
+### `ROLLBACK`
+
+```sql
+DELETE FROM Orders; 
+ROLLBACK;
+```
+
+在事务处理块中，DELETE 操作（与 INSERT 和 UPDATE 操作一样）并不是最终的结果。
+
+### `COMMIT`
+
+```sql
+BEGIN TRANSACTION 
+DELETE OrderItems 
+WHERE order_num = 12345 
+DELETE Orders 
+WHERE order_num = 12345 
+COMMIT TRANSACTION
+```
+
+最后的 `COMMIT` 语句仅在不出错时写出更改。如果第 一条 `DELETE` 起作用，但第二条失败，则 `DELETE` 不会提交。
+
+### 使用保留点
+
+```sql
+SAVEPOINT delete1;
+```
+
+每个保留点都要取能够标识它的唯一名字，以便在回退时，DBMS 知道 回退到何处。
+
+```sql
+BEGIN TRANSACTION 
+INSERT INTO Customers(cust_id, cust_name) 
+VALUES(1000000010, 'Toys Emporium'); 
+SAVE TRANSACTION StartOrder;
+
+INSERT INTO Orders(order_num, order_date, cust_id) 
+VALUES(20100,'2001/12/1',1000000010);
+
+IF @@ERROR <> 0 
+ROLLBACK TRANSACTION StartOrder; 
+
+INSERT INTO OrderItems(order_num, order_item, prod_id, quantity, item_price)
+VALUES(20100, 1, 'BR01', 100, 5.49); 
+
+IF @@ERROR <> 0 
+ROLLBACK TRANSACTION StartOrder; 
+
+INSERT INTO OrderItems(order_num, order_item, prod_id, quantity, item_price)
+VALUES(20100, 2, 'BR03', 100, 10.99); 
+
+IF @@ERROR <> 0 
+ROLLBACK TRANSACTION StartOrder; 
+
+COMMIT TRANSACTION
+```
+
+可以在 SQL 代码中设置任意多的保留点，越多越好。为什么呢？因为 保留点越多，你就越能灵活地进行回退。
+
+## 使用游标
+
+游标（cursor）是一个存储在 DBMS 服务器上的数据库查询， 它不是一条 `SELECT` 语句，而是被该语句检索出来的结果集。在存储了游标之后，应用程序可以根据需要滚动或浏览其中的数据。
+
+不同的 DBMS 支持不同的游标选项和特性。常见的一些选项和特性如下。
+
+- 能够标记游标为只读，使数据能读取，但不能更新和删除。
+- 能控制可以执行的定向操作（向前、向后、第一、最后、绝对位置和相对位置等）。
+- 能标记某些列为可编辑的，某些列为不可编辑的。
+- 规定范围，使游标对创建它的特定请求（如存储过程）或对所有请求可访问。
+- 指示 DBMS 对检索出的数据（而不是指出表中活动数据）进行复制，使数据在游标打开和访问期间不变化。
+- 游标主要用于交互式应用，其中用户需要滚动屏幕上的数据，并对数据进行浏览或做出更改。
+
+使用游标涉及几个明确的步骤。
+
+- 在使用游标前，必须声明（定义）它。这个过程实际上没有检索数据，
+它只是定义要使用的 `SELECT` 语句和游标选项。
+- 一旦声明，就必须打开游标以供使用。这个过程用前面定义的 `SELECT`语句把数据实际检索出来。
+- 对于填有数据的游标，根据需要取出（检索）各行。
+- 在结束游标使用时，必须关闭游标，可能的话，释放游标（有赖于具体的 DBMS）。
+声明游标后，可根据需要频繁地打开和关闭游标。在游标打开时，可根据需要频繁地执行取操作。
+
+### 创建游标
+
+使用 `DECLARE` 语句创建游标，这条语句在不同的 DBMS 中有所不同。 `DECLARE` 命名游标，并定义相应的 `SELECT` 语句，根据需要带 `WHERE` 和 其他子句。
+
+```sql
+DECLARE CustCursor CURSOR 
+FOR
+SELECT * 
+FROM Customers 
+WHERE cust_email IS NULL;
+
+OPEN CURSOR CustCursor
+
+DECLARE TYPE CustCursor IS REF CURSOR
+      RETURN Customers%ROWTYPE;
+DECLARE CustRecord Customers%ROWTYPE 
+BEGIN
+      OPEN CustCursor; 
+      LOOP
+      FETCH CustCursor INTO CustRecord; 
+      EXIT WHEN CustCursor%NOTFOUND;
+      ... 
+      END LOOP; 
+      CLOSE CustCursor;
+END;
+```
+
+## 高级特性
+
+### 约束
+
+正确地进行关系数据库设计，需要一种方法保证只在表中插入合法数据。
+虽然可以在插入新行时进行检查（在另一个表上执行 `SELECT`，以保证所有值合法并存在），但最好不要这样做，原因如下。
+
+- 如果在客户端层面上实施数据库完整性规则，则每个客户端都要被迫实施这些规则，一定会有一些客户端不实施这些规则。
+- 在执行 `UPDATE` 和 `DELETE` 操作时，也必须实施这些规则。
+- 执行客户端检查是非常耗时的，而 DBMS 执行这些检查会相对高效。
+
+DBMS 通过在数据库表上施加约束来实施引用完整性。大多数约束是在表定义中定义的，用 `CREATE TABLE` 或 `ALTER TABLE` 语句。
+
+### 主键
+
+表中任意列只要满足以下条件，都可以用于主键。
+
+- 任意两行的主键值都不相同。
+- 每行都具有一个主键值（即列中不允许 `NULL` 值）。
+- 包含主键值的列从不修改或更新。
+- 主键值不能重用。如果从表中删除某一行，其主键值不分配给新行。
+
+```sql
+CREATE TABLE Vendors
+(
+      vend_id           CHAR(10)    NOT NULL PRIMARY KEY, 
+      vend_name         CHAR(50)    NOT NULL,
+      vend_address      CHAR(50)    NULL, 
+      vend_city         CHAR(50)    NULL, 
+      vend_state        CHAR(5)     NULL, 
+      vend_zip          CHAR(10)    NULL, 
+      vend_country      CHAR(50)    NULL
+);
+```
+
+```sql
+ALTER TABLE Vendors 
+ADD CONSTRAINT PRIMARY KEY (vend_id);
+```
+
+### 外键
+
+外键是表中的一列，其值必须列在另一表的主键中。外键是保证引用完 整性的极其重要部分。
+
+```sql
+CREATE TABLE Orders
+(
+      order_num         INTEGER           NOT NULL PRIMARY KEY, 
+      order_date        DATETIME          NOT NULL,
+      cust_id           CHAR(10)          NOT NULL REFERENCES Customers(cust_id)
+);
+```
+
+```sql
+ALTER TABLE Orders 
+ADD CONSTRAINT
+FOREIGN KEY (cust_id) REFERENCES Customers (cust_id);
+```
+
+除帮助保证引用完整性外，外键还有另一个重要作用。 在定义外键后，DBMS 不允许删除在另一个表中具有关联行的行。例如，不能删除关联订单的顾客。删除该顾客的唯一方法是首先删除相关的订单（这表示还要删除相关的订单项）。由于需要一系列的删除， 因而利用外键可以防止意外删除数据。
+
+有的 DBMS 支持称为级联删除（cascading delete）的特性。如果启用， 该特性在从一个表中删除行时删除所有相关的数据。例如，如果启用 级联删除并且从 Customers 表中删除某个顾客，则任何关联的订单行 也会被自动删除。
+
+### 唯一约束
+
+唯一约束用来保证一列（或一组列）中的数据是唯一的。它们类似于主键，但存在以下重要区别。
+
+- 表可包含多个唯一约束，但每个表只允许一个主键。
+- 唯一约束列可包含 NULL 值。
+- 唯一约束列可修改或更新。
+- 唯一约束列的值可重复使用。
+- 与主键不一样，唯一约束不能用来定义外键。
+
+### 检查约束
+
+检查约束用来保证一列（或一组列）中的数据满足一组指定的条件。检查约束的常见用途有以下几点。
+
+- 检查最小或最大值。例如，防止 0 个物品的订单（即使 0 是合法的数）。
+- 指定范围。例如，保证发货日期大于等于今天的日期，但不超过今天起一年后的日期。
+- 只允许特定的值。例如，在性别字段中只允许 `M` 或 `F`。
+
+```sql
+CREATE TABLE OrderItems
+(
+      order_num   INTEGER     NOT NULL, 
+      order_item  INTEGER     NOT NULL, 
+      prod_id     CHAR(10)    NOT NULL,
+      quantity    INTEGER     NOT NULL    CHECK (quantity > 0), 
+      item_price  MONEY       NOT NULL
+);
+```
+
+```sql
+ADD CONSTRAINT CHECK (gender LIKE '[MF]');
+```
+
+有的 DBMS 允许用户定义自己的数据类型。它们是定义检查约束（或其他约束）的基本简单数据类型。例如，你可以定义自己的名为 `gender` 的数据类型，它是单字符的文本数据类型，带限制其值为 `M` 或 `F`（对 于未知值或许还允许 NULL）的检查约束。然后，可以将此数据类型用于表的定义。定制数据类型的优点是只需施加约束一次（在数据类型 定义中），而每当使用该数据类型时，都会自动应用这些约束。
+
+### 索引
+
+索引用来排序数据以加快搜索和排序操作的速度。
+主键数据总是排序的，这是 DBMS 的工作。 因此，按主键检索特定行总是一种快速有效的操作。
+但是，搜索其他列中的值通常效率不高。
+解决方法是使用索引。可以在一个或多个列上定义索引，使 DBMS 保存 其内容的一个排过序的列表。在定义了索引后，DBMS 以使用书的索引类似的方法使用它。DBMS 搜索排过序的索引，找出匹配的位置，然后检索这些行。
+
+在开始创建索引前，应该记住以下内容。
+
+- 索引改善检索操作的性能，但降低了数据插入、修改和删除的性能。
+在执行这些操作时，DBMS 必须动态地更新索引。
+- 索引数据可能要占用大量的存储空间。
+- 并非所有数据都适合做索引。取值不多的数据（如州）不如具有更多可能值的数据（如姓或名），能通过索引得到那么多的好处。
+- 索引用于数据过滤和数据排序。如果你经常以某种特定的顺序排序数据，则该数据可能适合做索引。
+- 可以在索引中定义多个列（例如，州加上城市）。这样的索引仅在以州加城市的顺序排序时有用。如果想按城市排序，则这种索引没有用处。
+
+```sql
+CREATE INDEX prod_name_ind 
+ON Products (prod_name);
+```
+
+索引必须唯一命名。这里的索引名 `prod_name_ind` 在关键字`CREATE INDEX` 之后定义。`ON`用来指定被索引的表，而索引中包含的列（此例中仅有一列）在表名后的圆括号中给出。
+
+### 触发器
+
+触发器是特殊的存储过程，它在特定的数据库活动发生时自动执行。触发器可以与特定表上的 `INSERT`、`UPDATE` 和 `DELETE` 操作（或组合）相关联。
+与存储过程不一样（存储过程只是简单的存储 SQL 语句），触发器与单个的表相关联。
+
+触发器内的代码具有以下数据的访问权：
+
+- INSERT 操作中的所有新数据；
+- UPDATE 操作中的所有新数据和旧数据；
+- DELETE 操作中删除的数据。
+
+下面是触发器的一些常见用途。
+
+- 保证数据一致。例如，在 `INSERT` 或 `UPDATE` 操作中将所有州名转换
+为大写。
+- 基于某个表的变动在其他表上执行活动。例如，每当更新或删除一行
+时将审计跟踪记录写入某个日志表。
+- 进行额外的验证并根据需要回退数据。例如，保证某个顾客的可用资
+金不超限定，如果已经超出，则阻塞插入。
+- 计算计算列的值或更新时间戳。
+
+```sql
+CREATE TRIGGER customer_state 
+ON Customers
+FOR INSERT, UPDATE 
+AS
+UPDATE Customers 
+SET cust_state = Upper(cust_state) 
+WHERE Customers.cust_id = inserted.cust_id;
+```
+
+一般来说，约束的处理比触发器快，因此在可能的时候，应该尽量使用约束。
+
+### 数据库安全
+
+一般说来，需要保护的操作有：
+
+- 对数据库管理功能（创建表、更改或删除已存在的表等）的访问；
+- 对特定数据库或表的访问；
+- 访问的类型（只读、对特定列的访问等）；
+- 仅通过视图或存储过程对表进行访问；
+- 创建多层次的安全措施，从而允许多种基于登录的访问和控制；
+- 限制管理用户账号的能力。
+
+安全性使用 SQL 的 `GRANT` 和 `REVOKE` 语句来管理，不过，大多数 DBMS 提供了交互式的管理实用程序，这些实用程序在内部使用 `GRANT` 和 `REVOKE` 语句。
 
 ## 一些需要注意的地方
 
@@ -829,3 +1149,18 @@ WHERE 子句只返回条件为 TRUE 的结果，过滤掉 FALSE 和 UNKNOWN
 使用''
 
 ### 外键
+
+### 视图
+
+### 存储过程
+
+### 事务处理
+
+### 游标
+
+游标是SQL开发的"核武器"：
+功能强大但危险
+大部分场景应当避免
+仅作为"最后手段"使用
+即使使用也要严格限制影响范围
+现代数据库系统都已提供更优替代方案（窗口函数、CTE、批量操作等），除非处理复杂业务逻辑必须逐行处理，否则应避免使用游标。
